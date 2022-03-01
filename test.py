@@ -12,7 +12,7 @@ from docx.shared import RGBColor
 #------------------------------------資料取得----------------------------------------
 def mongo_connect():
     try:
-        client = MongoClient("address")
+        client = MongoClient("")
         return client["pv"]
     except Exception as e:
         print(e)
@@ -370,13 +370,29 @@ def company_imformation(pv, object_id):
     imformation.append(tel)
     return imformation
 
-def project_name(pv, equipment_id):
-    equipment = pv["equipment"].find_one(
+def project_name(pv, id):
+    plant = pv["plant"].find_one(
         {
-            "_id": ObjectId(equipment_id)
+            "_id": ObjectId(id)
         }
     )
-    name = equipment["PV"] + "-" + equipment["lgroup"] + "-" + equipment["name"]
+    equipment = pv["equipment"].find_one(
+        {
+            "_id": ObjectId(id)
+        }
+    )
+    if plant and not equipment:
+        name = plant["name"]
+    elif not plant and equipment:
+        PV_str = equipment["PV"]
+        lgroup = equipment["lgroup"]
+        pv_name = equipment["name"]
+        if lgroup and pv_name:
+            name = PV_str + "-" + lgroup + "-" + pv_name
+        elif lgroup and not pv_name:
+            name = PV_str + "-" + lgroup
+        else:
+            name = PV_str
     return name
 
 def imformation_data(project_name, date, position, capacity):
@@ -592,15 +608,15 @@ if __name__ == "__main__":
     pv = mongo_connect()
     plant_id = "5e8d4c884a11d7e11cd2050e"
     equipment_id = "5e8d4c884a11d7e11cd20521"
-    plant_id, solar_ID, meter_ID, pr_ID = id_identify(pv, equipment_id)
+    plant_id, solar_ID, meter_ID, pr_ID = id_identify(pv, plant_id)
     name, field_position, capacity = field_imformation(pv, plant_id)
 
-    time = "2021-11-20 06:00:00"
-    time = datetime.strptime(time, '%Y-%m-%d %H:%M:%S')
-    time1 = "2022-02-25 10:00:00"
-    time1 = datetime.strptime(time1, '%Y-%m-%d %H:%M:%S')
-    time_interval = "day"
-    time_list = set_time_interval(time, time1, time_interval)
+    start_time = "2022-02-27 06:00:00"
+    start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+    end_time = "2022-02-28 10:00:00"
+    end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+    time_interval = "hour"
+    time_list = set_time_interval(start_time, end_time, time_interval)
 
     irrh_data = irrh_cal(pv, solar_ID, time_list, time_interval)
     meter_data = meter_cal(pv, meter_ID, time_list, time_interval)
@@ -610,7 +626,7 @@ if __name__ == "__main__":
     header_data = company_imformation(pv, plant_id)
 
     name = project_name(pv, pr_ID)
-    date = str(time) + "~" + str(time1)
+    date = str(start_time) + "~" + str(end_time)
     imformation_dict = imformation_data(name, date, field_position, str(capacity))
     table_head_datas = ["時間", "日照量", "發電量", "PR"]
     data = table_data(time_list, irrh_data, meter_data, pr_data)
