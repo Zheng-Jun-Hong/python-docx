@@ -12,7 +12,7 @@ from docx.shared import RGBColor
 #------------------------------------資料取得----------------------------------------
 def mongo_connect():
     try:
-        client = MongoClient("address")
+        client = MongoClient("")
         return client["pv"]
     except Exception as e:
         print(e)
@@ -32,9 +32,9 @@ def id_identify(pv, id):
     if plant and not equipment:
         plant_id = id
         name = plant["name"]
-        solar_ID = solar_meter_ID(pv, name, name)
-        meter_ID = PR_and_meter_ID(pv, name, name)
-        pr_ID = PR_and_meter_ID(pv, name, name)
+        solar_ID = solar_meter_ID(pv, name)
+        meter_ID = id
+        pr_ID = id
     elif not plant and equipment:
         name = equipment["PV"]
         plant = pv["plant"].find_one(
@@ -43,7 +43,14 @@ def id_identify(pv, id):
             }
         )
         plant_id = str(plant["_id"])
-        solar_ID = solar_meter_ID(pv, name, name)
+        PV_str = equipment["PV"]
+        if equipment["type"] == "pv_lgroup":
+            pv_lgroup = equipment["name"]
+            group = None
+        elif equipment["type"] == "pv_group":
+            pv_lgroup = equipment["lgroup"]
+            group = equipment["name"]
+        solar_ID = solar_meter_ID(pv, PV_str, pv_lgroup, group)
         meter_ID = id
         pr_ID = id
     return plant_id, solar_ID, meter_ID, pr_ID
@@ -64,27 +71,44 @@ def field_imformation(pv, object_id):
     return name, field_position, capacity
 
 #日照計ID
-def solar_meter_ID(pv, PV, lgroup):
+def solar_meter_ID(pv, PV, lgroup=None, group=None):
     equipment = pv["equipment"]
-    meter = equipment.find_one(
-        {
-            "PV": PV,
-            "lgroup": lgroup,
-            "group": "地號5、33、34",
-            "type": "sun",
-            "main_sun": 1
-        }
-    )
+    if not (lgroup and group):
+        meter = equipment.find_one(
+            {
+                "PV": PV,
+                "type": "sun",
+                "main_sun": 1
+            }
+        )
+    elif lgroup and not group:
+        meter = equipment.find_one(
+            {
+                "PV": PV,
+                "lgroup": lgroup,
+                "type": "sun",
+                "main_sun": 1
+            }
+        )
+    elif lgroup and group:
+        meter = equipment.find_one(
+            {
+                "PV": PV,
+                "lgroup": lgroup,
+                "group": group,
+                "type": "sun",
+                "main_sun": 1
+            }
+        )
     ID = str(meter["_id"])
     return ID
 
 #PR跟meterID
-def PR_and_meter_ID(pv, PV, lgroup):
+def PR_and_meter_ID(pv, PV):
     equipment = pv["equipment"]
     meter = equipment.find_one(
         {
             "PV": PV,
-            "lgroup": lgroup,
             "type": "pv_group"
         }
     )
@@ -119,6 +143,8 @@ def irrh_cal(pv, ID, times, time_interval, round_number=1):
 #meter的data list
 def meter_cal(pv, ID, times, time_interval, round_number=1):
     meter_data = []
+    number_data = []
+    avg_val = 0
     meter_cal = pv["meter_cal"]
     for time in times:
         meter = meter_cal.find_one(
@@ -132,14 +158,20 @@ def meter_cal(pv, ID, times, time_interval, round_number=1):
             if meter["kwh"]:
                 if type(round_number) == int:
                     meter_data.append(round(meter["kwh"], round_number))
+                    number_data.append(round(meter["kwh"], round_number))
+                    avg_val += round(meter["kwh"], round_number)
                 else:
                     round_number = round(round_number)
                     meter_data.append(round(meter["kwh"], round_number))
+                    number_data.append(round(meter["kwh"], round_number))
+                    avg_val += round(meter["kwh"], round_number)
             else:
                 meter_data.append("---")
         else:
             meter_data.append("---")
-    return meter_data
+    max_val = max(number_data)
+    avg_val = round(avg_val/len(meter_data), round_number)
+    return meter_data, max_val, avg_val
 
 #pr的data list
 def pr_cal(pv, ID, times, time_interval, round_number=1):
@@ -257,12 +289,12 @@ def set_time_interval(start_time, end_time, time_interval):
         start_year = int(start_list[0])
         start_month = int(start_list[1])
         start_day = int(start_list[2])
-        start_hour = int(start_hour_string.split(":")[0])
+        start_hour = 0
         end_list = end_date.split("-")
         end_year = int(end_list[0])
         end_month = int(end_list[1])
         end_day = int(end_list[2])
-        end_hour = int(end_hour_string.split(":")[0])
+        end_hour = 23
         component = ":00:00"
         date = str(start_year) + "-" + str(start_month) + "-" + str(start_day) + " " + str(start_hour) + component
         during.append(datetime.strptime(date, '%Y-%m-%d %H:%M:%S'))
@@ -295,15 +327,15 @@ def set_time_interval(start_time, end_time, time_interval):
         start_month = int(start_list[1])
         start_day = int(start_list[2])
         start_hour_list = start_hour_string.split(":")
-        start_hour = int(start_hour_list[0])
-        start_minute = int(start_hour_list[1])
+        start_hour = 0
+        start_minute = 0
         end_list = end_date.split("-")
         end_year = int(end_list[0])
         end_month = int(end_list[1])
         end_day = int(end_list[2])
         end_hour_list = end_hour_string.split(":")
-        end_hour = int(end_hour_list[0])
-        end_minute = int(end_hour_list[1])
+        end_hour = 23
+        end_minute = 45
         component = ":00"
         date = str(start_year) + "-" + str(start_month) + "-" + str(start_day) + " " + str(start_hour) + ":" + str(start_minute) + component
         during.append(datetime.strptime(date, '%Y-%m-%d %H:%M:%S'))
@@ -343,28 +375,51 @@ def company_imformation(pv, object_id):
             "_id": ObjectId(object_id)
         }
     )
-    company_name = plant["paets_info"]["unit"]
-    tel = plant["paets_info"]["TEL"]
+    company_name = plant.get('paets_info', {}).get('unit', '')
+    tel = plant.get('paets_info', {}).get('TEL', '')
     imformation = []
     imformation.append(company_name)
     imformation.append(tel)
     return imformation
 
-def project_name(pv, equipment_id):
-    equipment = pv["equipment"].find_one(
+def project_name(pv, id):
+    plant = pv["plant"].find_one(
         {
-            "_id": ObjectId(equipment_id)
+            "_id": ObjectId(id)
         }
     )
-    name = equipment["PV"] + "-" + equipment["lgroup"] + "-" + equipment["name"]
-    return name
+    equipment = pv["equipment"].find_one(
+        {
+            "_id": ObjectId(id)
+        }
+    )
+    if plant and not equipment:
+        name = plant["name"]
+    elif not plant and equipment:
+        PV_str = equipment["PV"]
+        if equipment["type"] == "pv_lgroup":
+            lgroup = equipment["name"]
+            group = None
+        elif equipment["type"] == "pv_group":
+            lgroup = equipment["lgroup"]
+            group = equipment["name"]
+
+        if lgroup and group:
+            name = PV_str + "-" + lgroup + "-" + group
+        elif lgroup and not group:
+            name = PV_str + "-" + lgroup
+        else:
+            name = PV_str
+    return name+"_"+str(start_time)+"_"+str(end_time)+"_"+time_interval
 
 def imformation_data(project_name, date, position, capacity):
     imformation = {
         "專案名稱": project_name,
         "日期": date,
         "案場位置": position,
-        "設置容量": capacity + "kW"
+        "設置容量": capacity + "kW",
+        # "最大功率": max_val + "kWh",
+        # "平均功率": avg_val + "kWh"
     }
     return imformation
 
@@ -572,15 +627,16 @@ if __name__ == "__main__":
     pv = mongo_connect()
     plant_id = "5e8d4c884a11d7e11cd2050e"
     equipment_id = "5e8d4c884a11d7e11cd20521"
-    plant_id, solar_ID, meter_ID, pr_ID = id_identify(pv, equipment_id)
+    test_id = "5e12d4f67dda745b3bd503bf"
+    plant_id, solar_ID, meter_ID, pr_ID = id_identify(pv, test_id)
     name, field_position, capacity = field_imformation(pv, plant_id)
 
-    time = "2021-11-20 06:00:00"
-    time = datetime.strptime(time, '%Y-%m-%d %H:%M:%S')
-    time1 = "2022-02-25 10:00:00"
-    time1 = datetime.strptime(time1, '%Y-%m-%d %H:%M:%S')
-    time_interval = "year"
-    time_list = set_time_interval(time, time1, time_interval)
+    start_time = "2022-03-01"
+    start_time = datetime.strptime(start_time, '%Y-%m-%d')
+    end_time = "2022-03-02"
+    end_time = datetime.strptime(end_time, '%Y-%m-%d')
+    time_interval = "hour"
+    time_list = set_time_interval(start_time, end_time, time_interval)
 
     irrh_data = irrh_cal(pv, solar_ID, time_list, time_interval)
     meter_data = meter_cal(pv, meter_ID, time_list, time_interval)
@@ -590,7 +646,7 @@ if __name__ == "__main__":
     header_data = company_imformation(pv, plant_id)
 
     name = project_name(pv, pr_ID)
-    date = str(time) + "~" + str(time1)
+    date = str(start_time) + "~" + str(end_time)
     imformation_dict = imformation_data(name, date, field_position, str(capacity))
     table_head_datas = ["時間", "日照量", "發電量", "PR"]
     data = table_data(time_list, irrh_data, meter_data, pr_data)
